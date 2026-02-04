@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { isValidEquation, sanitizeInput } from '../utils/validators'
 
-const EquationInput = ({ onEquationSubmit, initialValue = '' }) => {
+const EquationInput = ({ onEquationSubmit, onEquationChange, initialValue = '' }) => {
     const [input, setInput] = useState(initialValue)
     const [error, setError] = useState(null)
     const [placeholderIndex, setPlaceholderIndex] = useState(0)
@@ -35,13 +35,13 @@ const EquationInput = ({ onEquationSubmit, initialValue = '' }) => {
         if (!input.trim() || input === initialValue) return
 
         const timer = setTimeout(() => {
-            validateAndSubmit(input)
+            validateAndSubmit(input, false)
         }, 500)
 
         return () => clearTimeout(timer)
     }, [input, initialValue])
 
-    const validateAndSubmit = (value) => {
+    const validateAndSubmit = (value, isFinal = false) => {
         const sanitized = sanitizeInput(value)
         const validation = isValidEquation(sanitized)
 
@@ -56,17 +56,27 @@ const EquationInput = ({ onEquationSubmit, initialValue = '' }) => {
         }
 
         setError(null)
-        onEquationSubmit(sanitized)
+
+        // Live update
+        if (onEquationChange) {
+            onEquationChange(sanitized)
+        }
+
+        // Final submit (save history)
+        if (isFinal) {
+            onEquationSubmit(sanitized)
+        }
     }
 
     const handleSubmit = (e) => {
         e.preventDefault()
-        validateAndSubmit(input)
+        validateAndSubmit(input, true)
     }
 
     const handleClear = () => {
         setInput('')
         setError(null)
+        if (onEquationChange) onEquationChange(null)
         onEquationSubmit(null)
     }
 

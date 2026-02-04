@@ -614,4 +614,19 @@ const getThemeLayout = (isDark) => ({
     'legend.font.color': isDark ? '#E8ECF5' : '#1A1A1A'
 })
 
-export default GraphPanelOptimized
+export default React.memo(GraphPanelOptimized, (prevProps, nextProps) => {
+    // Custom comparison for deep equality on equations if needed,
+    // but usually shallow compare on equations array is enough IF we treat it immutably.
+    // However, if we edit parameters in place, shallow compare might fail to detect changes?
+    // useEquationManager sets new state array on update, so reference changes.
+    // So default shallow compare should work for equations array ref change.
+
+    // Check if simple props distinct
+    if (prevProps.equation !== nextProps.equation) return false
+    if (prevProps.parameters !== nextProps.parameters) return false
+
+    // Check equations array
+    if (prevProps.equations !== nextProps.equations) return false
+
+    return true
+})

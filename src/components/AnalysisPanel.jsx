@@ -110,4 +110,19 @@ const AnalysisPanel = ({ equation, parameters }) => {
     )
 }
 
-export default AnalysisPanel
+export default React.memo(AnalysisPanel, (prevProps, nextProps) => {
+    if (prevProps.equation !== nextProps.equation) return false
+
+    // Deep compare parameters array
+    if (prevProps.parameters && nextProps.parameters) {
+        if (prevProps.parameters.length !== nextProps.parameters.length) return false
+        for (let i = 0; i < prevProps.parameters.length; i++) {
+            if (prevProps.parameters[i].value !== nextProps.parameters[i].value) return false
+            if (prevProps.parameters[i].name !== nextProps.parameters[i].name) return false
+        }
+    } else if (prevProps.parameters !== nextProps.parameters) {
+        return false // One is null/undefined
+    }
+
+    return true
+})

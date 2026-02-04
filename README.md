@@ -39,7 +39,7 @@ We support over 12 equation types across 4 major categories:
 ### Installation
 1.  **Clone the repository**
     ```bash
-    git clone https://github.com/yourusername/math-vision.git
+    git clone https://github.com/Rick-1-svg/math-vision.git
     cd math-vision
     ```
 

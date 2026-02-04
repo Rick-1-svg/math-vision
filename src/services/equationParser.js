@@ -12,11 +12,11 @@ export const parseEquation = (input) => {
 
         // Replace common patterns for Math.js compatibility
         let processed = sanitized
-            .replace(/\b(sin|cos|tan|sec|csc|cot|asin|acos|atan)\^(\d+)\((.*?)\)/g, '($1($3))^$2') // sin^2(x) -> (sin(x))^2
+            .replace(/\b(sin|cos|tan|sec|csc|cot|asin|acos|atan)\s*\^\s*(\d+)\s*\(\s*(.*?)\s*\)/g, '($1($3))^$2') // sin^2(x) -> (sin(x))^2
             .replace(/\^/g, '^')  // Power operator
-            .replace(/e\^/g, 'exp')  // e^x -> exp(x)
-            .replace(/ln\(/g, 'log(')  // Natural log
-            .replace(/log10\(/g, 'log10(')  // Base 10 log
+            .replace(/e\s*\^/g, 'exp')  // e^x -> exp(x)
+            .replace(/ln\s*\(/g, 'log(')  // Natural log
+            .replace(/log10\s*\(/g, 'log10(')  // Base 10 log
 
         // Handle implicit equations (e.g. x^2 + y^2 = 9) by converting to equality check
         // but preserve simple assignments (e.g. y = x, z = x+y) and function definitions (e.g. f(x) = x^2)

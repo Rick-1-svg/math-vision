@@ -1,3 +1,4 @@
+import { compile } from 'mathjs'
 import { EQUATION_TYPES } from '../utils/constants'
 import { extractVariables } from './equationParser'
 
@@ -11,63 +12,64 @@ export const classifyEquation = (equation, parsedNode) => {
     const normalized = equation.toLowerCase().replace(/\s/g, '')
     const variables = extractVariables(parsedNode)
 
-    // Check for explicit 3D (z = ...) or implicit f(x,y)
+    // Strategy 1: Check for explicit 3D (z = ...)
     if (variables.includes('z') || /^z=/.test(normalized)) {
         return EQUATION_TYPES.THREE_D
     }
 
-    // Check for multivariable function f(x, y) without equality, assuming z = ...
-    // But exclude implicit 2D equations like circles
-    if (variables.includes('x') && variables.includes('y') && !normalized.includes('=')) {
+    // Strategy 2: Check for Implicit 2D (Conics) - Requires Equality
+    if (normalized.includes('=')) {
+        if (isCircle(normalized)) return EQUATION_TYPES.CIRCLE
+        if (isEllipse(normalized)) return EQUATION_TYPES.ELLIPSE
+        if (isHyperbola(normalized)) return EQUATION_TYPES.HYPERBOLA
+    }
+
+    // Strategy 3: Check for Implicit 3D Surface (f(x,y) with NO equality or z)
+    // If we have x and y, and it's NOT a conic with =, it's likely a surface z = f(x,y)
+    // Note: If it matched a conic regex but had no '=', it falls here (e.g. x^2 + y^2 - 25)
+    // which is correct for a surface.
+    if (variables.includes('x') && variables.includes('y')) {
         return EQUATION_TYPES.THREE_D
     }
 
-    // Check for trigonometric functions
+    // Strategy 4: One Variable (x only, or constant)
+    // Check specific 1D function types
     if (/sin\(/.test(normalized)) return EQUATION_TYPES.SINE
     if (/cos\(/.test(normalized)) return EQUATION_TYPES.COSINE
     if (/tan\(/.test(normalized)) return EQUATION_TYPES.TANGENT
-
-    // Check for exponential
-    if (/exp\(|e\^/.test(normalized)) return EQUATION_TYPES.EXPONENTIAL
-    if (/\d*\*?e\^/.test(normalized)) return EQUATION_TYPES.EXPONENTIAL
-
-    // Check for logarithmic
+    if (/exp\(|e\^/.test(normalized) || /\d*\*?e\^/.test(normalized)) return EQUATION_TYPES.EXPONENTIAL
     if (/log\(|ln\(/.test(normalized)) return EQUATION_TYPES.LOGARITHMIC
 
-    // Check for implicit equations (circle, ellipse, hyperbola)
-    if (variables.includes('x') && variables.includes('y')) {
-        // Circle: x^2 + y^2 = r^2 or x^2 + y^2 - r^2 = 0
-        if (/x\^2.*\+.*y\^2/.test(normalized) && !normalized.includes('/')) {
-            return EQUATION_TYPES.CIRCLE
-        }
+    // Strategy 5: Polynomial Degree Check
+    // We check degree by inspecting the string or node. Regex is simple for x^n.
+    if (/x\^3/.test(normalized)) return EQUATION_TYPES.CUBIC
+    if (/x\^2/.test(normalized)) return EQUATION_TYPES.QUADRATIC
 
-        // Ellipse: x^2/a^2 + y^2/b^2 = 1 or (x^2)/a + (y^2)/b - 1
-        if (/(?:x\^2|\(x\^2\))\/.*\+.*(?:y\^2|\(y\^2\))\//.test(normalized)) {
-            return EQUATION_TYPES.ELLIPSE
-        }
-
-        // Hyperbola: x^2/a^2 - y^2/b^2 = 1 or (x^2)/a - (y^2)/b - 1
-        if (/(?:x\^2|\(x\^2\))\/.*-.*(?:y\^2|\(y\^2\))\//.test(normalized)) {
-            return EQUATION_TYPES.HYPERBOLA
-        }
-    }
-
-    // Check polynomial degree for x-only equations
-    if (variables.includes('x') && !variables.includes('y')) {
-        // Cubic: x^3
-        if (/x\^3/.test(normalized)) return EQUATION_TYPES.CUBIC
-
-        // Quadratic: x^2
-        if (/x\^2/.test(normalized)) return EQUATION_TYPES.QUADRATIC
-
-        // Linear: just x
-        if (/\bx\b/.test(normalized) && !/x\^/.test(normalized)) {
-            return EQUATION_TYPES.LINEAR
-        }
+    // Linear: contains x, does not contain x^
+    if (/\bx\b/.test(normalized) && !/x\^/.test(normalized)) {
+        return EQUATION_TYPES.LINEAR
     }
 
     return EQUATION_TYPES.UNKNOWN
 }
+
+// --- Classification Helpers ---
+
+const isCircle = (normalized) => {
+    // x^2 + y^2 = r^2
+    return /x\^2.*\+.*y\^2/.test(normalized) && !normalized.includes('/')
+}
+
+const isEllipse = (normalized) => {
+    // x^2/a + y^2/b = 1
+    return /(?:x\^2|\(x\^2\))\/.*\+.*(?:y\^2|\(y\^2\))\//.test(normalized)
+}
+
+const isHyperbola = (normalized) => {
+    // x^2/a - y^2/b = 1
+    return /(?:x\^2|\(x\^2\))\/.*-.*(?:y\^2|\(y\^2\))\//.test(normalized)
+}
+
 
 /**
  * Extracts parameters from equation based on its type
@@ -76,181 +78,155 @@ export const classifyEquation = (equation, parsedNode) => {
  * @returns {Array} - Array of parameter objects
  */
 export const extractParameters = (equation, type) => {
-    const params = []
+    // Use the factory pattern to delegate extraction
+    const extractor = PARAMETER_EXTRACTORS[type]
+    if (extractor) {
+        return extractor(equation)
+    }
+    return []
+}
 
-    // Extract numeric coefficients
-    const extractCoefficient = (pattern, defaultValue = 1) => {
-        const match = equation.match(pattern)
-        if (match) {
-            const coef = match[1] ? parseFloat(match[1]) : defaultValue
-            return isNaN(coef) ? defaultValue : coef
+// --- Extraction Strategies ---
+
+const extractLinearParams = (equation) => {
+    // y = mx + b
+    // Robust Numerical Extraction:
+    // b = f(0)
+    // m = f(1) - f(0)
+    try {
+        const f = compileExpression(equation)
+        if (f) {
+            const b = f(0)
+            const m = f(1) - b
+            return [
+                { name: 'm', label: 'Slope (m)', value: m, min: -10, max: 10, step: 0.1, default: 1 },
+                { name: 'b', label: 'Y-intercept (b)', value: b, min: -10, max: 10, step: 0.1, default: 0 }
+            ]
         }
-        return defaultValue
+    } catch (e) { /* fallback to regex */ }
+
+    // Fallback Regex
+    return [
+        { name: 'm', label: 'Slope (m)', value: extractCoef(equation, /(-?\d*\.?\d*)\*?x/), min: -10, max: 10, step: 0.1, default: 1 },
+        { name: 'b', label: 'Y-intercept (b)', value: extractCoef(equation, /[+-]\s*(\d+\.?\d*)(?!\*x)/, 0), min: -10, max: 10, step: 0.1, default: 0 }
+    ]
+}
+
+const extractQuadraticParams = (equation) => {
+    // ax^2 + bx + c
+    // c = f(0)
+    // a+b = f(1)-c
+    // a-b = f(-1)-c
+    try {
+        const f = compileExpression(equation)
+        if (f) {
+            const c = f(0)
+            const sumAB = f(1) - c
+            const subAB = f(-1) - c
+            const a = (sumAB + subAB) / 2
+            const b = (sumAB - subAB) / 2
+
+            return [
+                { name: 'a', label: 'Coefficient a', value: a, min: -10, max: 10, step: 0.1, default: 1 },
+                { name: 'b', label: 'Coefficient b', value: b, min: -10, max: 10, step: 0.1, default: 0 },
+                { name: 'c', label: 'Constant c', value: c, min: -10, max: 10, step: 0.1, default: 0 }
+            ]
+        }
+    } catch (e) { /* fallback */ }
+
+    return [
+        { name: 'a', label: 'Coefficient a', value: extractCoef(equation, /(-?\d*\.?\d*)\*?x\^2/), min: -10, max: 10, step: 0.1, default: 1 },
+        { name: 'b', label: 'Coefficient b', value: extractCoef(equation, /[+-]\s*(-?\d*\.?\d*)\*?x(?!\^)/, 0), min: -10, max: 10, step: 0.1, default: 0 },
+        { name: 'c', label: 'Constant c', value: extractCoef(equation, /[+-]\s*(\d+\.?\d*)$/, 0), min: -10, max: 10, step: 0.1, default: 0 }
+    ]
+}
+
+const extractCubicParams = (equation) => {
+    // ax^3 + bx^2 + cx + d
+    // Regex fallback for now as Cubic is less strictly verified
+    return [
+        { name: 'a', label: 'Coefficient a', value: extractCoef(equation, /(-?\d*\.?\d*)\*?x\^3/), min: -5, max: 5, step: 0.1, default: 1 }
+    ]
+}
+
+const extractCircleParams = (equation) => {
+    const rSquared = extractCoef(equation, /=\s*(\d+\.?\d*)/)
+    return [{ name: 'r', label: 'Radius (r)', value: Math.sqrt(Math.abs(rSquared)), min: 0.5, max: 15, step: 0.5, default: 5 }]
+}
+
+const extractConicParams = (equation, type) => {
+    const aSquared = extractCoef(equation, /(?:x\^2|\(x\^2\))\/(\d+\.?\d*)/)
+    const bSquared = extractCoef(equation, /(?:y\^2|\(y\^2\))\/(\d+\.?\d*)/)
+    return [
+        { name: 'a', label: 'Semi-major axis (a)', value: Math.sqrt(Math.abs(aSquared)), min: 0.5, max: 10, step: 0.1, default: 3 },
+        { name: 'b', label: 'Semi-minor axis (b)', value: Math.sqrt(Math.abs(bSquared)), min: 0.5, max: 10, step: 0.1, default: 2 }
+    ]
+}
+
+const extractTrigParams = (equation, type) => {
+    let funcName = 'sin'
+    if (type === EQUATION_TYPES.COSINE) funcName = 'cos'
+    if (type === EQUATION_TYPES.TANGENT) funcName = 'tan'
+
+    return [
+        { name: 'a', label: 'Amplitude (a)', value: extractCoef(equation, new RegExp(`(-?\\d*\\.?\\d*)\\*?${funcName}`)), min: -5, max: 5, step: 0.1, default: 1 },
+        { name: 'b', label: 'Frequency (b)', value: extractCoef(equation, new RegExp(`${funcName}\\((-?\\d*\\.?\\d*)\\*?x`)), min: 0.1, max: 5, step: 0.1, default: 1 }
+    ]
+}
+
+const extractExpLogParams = (equation, type) => {
+    const isExp = type === EQUATION_TYPES.EXPONENTIAL
+    const pattern = isExp ? /(-?\d*\.?\d*)\*?(?:exp|e\^)/ : /(-?\d*\.?\d*)\*?(?:log|ln)/
+    return [{ name: 'a', label: 'Coefficient (a)', value: extractCoef(equation, pattern), min: -5, max: 5, step: 0.1, default: 1 }]
+}
+
+
+const PARAMETER_EXTRACTORS = {
+    [EQUATION_TYPES.LINEAR]: extractLinearParams,
+    [EQUATION_TYPES.QUADRATIC]: extractQuadraticParams,
+    [EQUATION_TYPES.CUBIC]: extractCubicParams,
+    [EQUATION_TYPES.CIRCLE]: extractCircleParams,
+    [EQUATION_TYPES.ELLIPSE]: (eq) => extractConicParams(eq, EQUATION_TYPES.ELLIPSE),
+    [EQUATION_TYPES.HYPERBOLA]: (eq) => extractConicParams(eq, EQUATION_TYPES.HYPERBOLA),
+    [EQUATION_TYPES.SINE]: (eq) => extractTrigParams(eq, EQUATION_TYPES.SINE),
+    [EQUATION_TYPES.COSINE]: (eq) => extractTrigParams(eq, EQUATION_TYPES.COSINE),
+    [EQUATION_TYPES.TANGENT]: (eq) => extractTrigParams(eq, EQUATION_TYPES.TANGENT),
+    [EQUATION_TYPES.EXPONENTIAL]: (eq) => extractExpLogParams(eq, EQUATION_TYPES.EXPONENTIAL),
+    [EQUATION_TYPES.LOGARITHMIC]: (eq) => extractExpLogParams(eq, EQUATION_TYPES.LOGARITHMIC)
+}
+
+// --- Helpers ---
+
+/**
+ * Extracts a numeric coefficient matching a pattern
+ */
+const extractCoef = (equation, pattern, defaultValue = 1) => {
+    const match = equation.match(pattern)
+    if (match) {
+        let valStr = match[1] ? match[1].replace(/\s/g, '') : ''
+        if (valStr === '' || valStr === '+') return 1
+        if (valStr === '-') return -1
+
+        const coef = parseFloat(valStr)
+        return isNaN(coef) ? defaultValue : coef
     }
+    return defaultValue
+}
 
-    switch (type) {
-        case EQUATION_TYPES.LINEAR:
-            // ... (omitted linear case lines 92-113 as they are unchanged)
-            // y = mx + b or ax + b
-            params.push({
-                name: 'm',
-                label: 'Slope (m)',
-                value: extractCoefficient(/(-?\d*\.?\d*)\*?x/),
-                min: -10,
-                max: 10,
-                step: 0.1,
-                default: 1
-            })
-            params.push({
-                name: 'b',
-                label: 'Y-intercept (b)',
-                value: extractCoefficient(/[+-]\s*(\d+\.?\d*)(?!\*x)/),
-                min: -10,
-                max: 10,
-                step: 0.1,
-                default: 0
-            })
-            break
+/**
+ * Compiles equation for numerical evaluation
+ * Returns a function f(x) or null
+ */
+const compileExpression = (equation) => {
+    try {
+        // Ensure equation is an expression, not assignment
+        // If it contains '=', numerical eval is hard without solving
+        if (equation.includes('=')) return null
 
-        case EQUATION_TYPES.QUADRATIC:
-            // ax^2 + bx + c
-            params.push({
-                name: 'a',
-                label: 'Coefficient a',
-                value: extractCoefficient(/(-?\d*\.?\d*)\*?x\^2/),
-                min: -10,
-                max: 10,
-                step: 0.1,
-                default: 1
-            })
-            params.push({
-                name: 'b',
-                label: 'Coefficient b',
-                value: extractCoefficient(/[+-]\s*(-?\d*\.?\d*)\*?x(?!\^)/),
-                min: -10,
-                max: 10,
-                step: 0.1,
-                default: 0
-            })
-            params.push({
-                name: 'c',
-                label: 'Constant c',
-                value: extractCoefficient(/[+-]\s*(\d+\.?\d*)$/),
-                min: -10,
-                max: 10,
-                step: 0.1,
-                default: 0
-            })
-            break
-
-        case EQUATION_TYPES.CUBIC:
-            // ... (omitted cubic case lines 145-156)
-            // ax^3 + bx^2 + cx + d
-            params.push({
-                name: 'a',
-                label: 'Coefficient a',
-                value: extractCoefficient(/(-?\d*\.?\d*)\*?x\^3/),
-                min: -5,
-                max: 5,
-                step: 0.1,
-                default: 1
-            })
-            break
-
-        case EQUATION_TYPES.CIRCLE:
-            // x^2 + y^2 = r^2
-            const rSquared = extractCoefficient(/=\s*(\d+\.?\d*)/)
-            params.push({
-                name: 'r',
-                label: 'Radius (r)',
-                value: Math.sqrt(Math.abs(rSquared)),
-                min: 0.5,
-                max: 15,
-                step: 0.5,
-                default: 5
-            })
-            break
-
-        case EQUATION_TYPES.ELLIPSE:
-        case EQUATION_TYPES.HYPERBOLA:
-            // x^2/a^2 +/- y^2/b^2 = 1
-            // Also supports (x^2)/a^2 ...
-            const aSquared = extractCoefficient(/(?:x\^2|\(x\^2\))\/(\d+\.?\d*)/)
-            const bSquared = extractCoefficient(/(?:y\^2|\(y\^2\))\/(\d+\.?\d*)/)
-            params.push({
-                name: 'a',
-                label: 'Semi-major axis (a)',
-                value: Math.sqrt(Math.abs(aSquared)),
-                min: 0.5,
-                max: 10,
-                step: 0.1,
-                default: 3
-            })
-            params.push({
-                name: 'b',
-                label: 'Semi-minor axis (b)',
-                value: Math.sqrt(Math.abs(bSquared)),
-                min: 0.5,
-                max: 10,
-                step: 0.1,
-                default: 2
-            })
-            break
-
-        case EQUATION_TYPES.SINE:
-        case EQUATION_TYPES.COSINE:
-        case EQUATION_TYPES.TANGENT:
-            // a*func(bx + c) + d
-            let funcName = 'sin'
-            if (type === EQUATION_TYPES.COSINE) funcName = 'cos'
-            if (type === EQUATION_TYPES.TANGENT) funcName = 'tan'
-
-            params.push({
-                name: 'a',
-                label: 'Amplitude (a)',
-                value: extractCoefficient(new RegExp(`(-?\\d*\\.?\\d*)\\*?${funcName}`)),
-                min: -5,
-                max: 5,
-                step: 0.1,
-                default: 1
-            })
-            params.push({
-                name: 'b',
-                label: 'Frequency (b)',
-                value: extractCoefficient(new RegExp(`${funcName}\\((-?\\d*\\.?\\d*)\\*?x`)),
-                min: 0.1,
-                max: 5,
-                step: 0.1,
-                default: 1
-            })
-            break
-
-        case EQUATION_TYPES.EXPONENTIAL:
-            // a*e^(bx)
-            params.push({
-                name: 'a',
-                label: 'Coefficient (a)',
-                value: extractCoefficient(/(-?\d*\.?\d*)\*?(?:exp|e\^)/),
-                min: -5,
-                max: 5,
-                step: 0.1,
-                default: 1
-            })
-            break
-
-        case EQUATION_TYPES.LOGARITHMIC:
-            // a*log(x)
-            params.push({
-                name: 'a',
-                label: 'Coefficient (a)',
-                value: extractCoefficient(/(-?\d*\.?\d*)\*?(?:log|ln)/),
-                min: -5,
-                max: 5,
-                step: 0.1,
-                default: 1
-            })
-            break
-    }
-
-    return params
+        const compiled = compile(equation)
+        return (x) => {
+            const scope = { x, e: Math.E, pi: Math.PI }
+            return compiled.evaluate(scope)
+        }
+    } catch (e) { return null }
 }

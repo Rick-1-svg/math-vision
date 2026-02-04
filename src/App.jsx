@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
 import Header from './components/Header'
 import EquationInput from './components/EquationInput'
 import GraphPanel from './components/GraphPanelOptimized'
@@ -11,9 +11,10 @@ import HistoryPanel from './components/HistoryPanel'
 import PracticeMode from './components/PracticeMode'
 import EquationList from './components/EquationList'
 import { useEquationManager } from './hooks/useEquationManager'
+import { useDarkMode } from './hooks/useDarkMode'
 
 function App() {
-    const [darkMode, setDarkMode] = useState(false)
+    const { darkMode, toggleDarkMode } = useDarkMode()
     const {
         equations,
         activeId,
@@ -24,38 +25,20 @@ function App() {
         updateEquation,
         updateParameters,
         updateFeatures,
-        toggleVisibility
+        toggleVisibility,
+        saveEquation
     } = useEquationManager()
 
-    // Load dark mode preference from localStorage
-    useEffect(() => {
-        try {
-            const savedDarkMode = localStorage.getItem('darkMode') === 'true'
-            setDarkMode(savedDarkMode)
-            if (savedDarkMode) {
-                document.body.classList.add('dark')
-            }
-        } catch (err) {
-            console.error('Error loading dark mode preference:', err)
-        }
-    }, [])
-
-    // Toggle dark mode
-    const toggleDarkMode = useCallback(() => {
-        try {
-            const newDarkMode = !darkMode
-            setDarkMode(newDarkMode)
-            document.body.classList.toggle('dark')
-            localStorage.setItem('darkMode', newDarkMode.toString())
-        } catch (err) {
-            console.error('Error saving dark mode preference:', err)
-        }
-    }, [darkMode])
-
-    // Handle equation submission
-    const handleEquationSubmit = useCallback((equationString) => {
+    // Live update when typing (no history save)
+    const handleEquationChange = useCallback((equationString) => {
         updateEquation(activeId, equationString)
     }, [activeId, updateEquation])
+
+    // Handle equation submission (save to history)
+    const handleEquationSubmit = useCallback((equationString) => {
+        updateEquation(activeId, equationString) // Ensure state is up to date
+        saveEquation(equationString)
+    }, [activeId, updateEquation, saveEquation])
 
     // Handle history/practice equation selection
     const handleSelectEquation = useCallback((equationString) => {
@@ -81,6 +64,7 @@ function App() {
                         <div className="lg:col-span-3">
                             <EquationInput
                                 onEquationSubmit={handleEquationSubmit}
+                                onEquationChange={handleEquationChange}
                                 initialValue={activeEquation?.text || ''}
                             />
                         </div>

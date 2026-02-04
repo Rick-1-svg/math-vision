@@ -98,3 +98,5 @@ dist-ssr/
 
 # Project-specific paths
 .agent/
+
+.kluster

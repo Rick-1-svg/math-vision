@@ -72,12 +72,8 @@ export const useEquationManager = () => {
                     const type = classifyEquation(equationString, parsed.data.node)
                     const params = extractParameters(equationString, type)
 
-                    // Optionally add valid equations to history
-                    if (id === activeId) {
-                        try {
-                            addToHistory({ equation: equationString, type, parameters: params })
-                        } catch (e) { /* ignore */ }
-                    }
+                    // Removed automatic history addition to preventing spamming history while typing
+                    // History should be added explicitly by the UI event handler (e.g. on Enter or Button click)
 
                     return {
                         ...eq,
@@ -116,6 +112,20 @@ export const useEquationManager = () => {
         }))
     }, [])
 
+
+
+    const saveEquation = useCallback((equationString) => {
+        if (!equationString) return
+        try {
+            const parsed = parseEquation(equationString)
+            if (parsed.success) {
+                const type = classifyEquation(equationString, parsed.data.node)
+                const params = extractParameters(equationString, type)
+                addToHistory({ equation: equationString, type, parameters: params })
+            }
+        } catch (e) { console.error(e) }
+    }, [])
+
     return {
         equations,
         activeId,
@@ -126,6 +136,8 @@ export const useEquationManager = () => {
         updateEquation,
         updateParameters,
         updateFeatures,
-        toggleVisibility
+
+        toggleVisibility,
+        saveEquation
     }
 }

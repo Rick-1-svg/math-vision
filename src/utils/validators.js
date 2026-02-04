@@ -38,23 +38,12 @@ export const isValidEquation = (input) => {
         }
     }
 
-    // Whitespace detection - ZERO TOLERANCE (including Unicode whitespace)
-    const whitespaceRegex = /[\s\u00A0\u200B\u2000-\u200F\u2028-\u202F\u205F\u3000\uFEFF]/
-    if (whitespaceRegex.test(input)) {
-        const wsMatches = input.match(/\s/g) || []
-        const unicodeWsMatches = input.match(/[\u00A0\u200B\u2000-\u200F\u2028-\u202F\u205F\u3000\uFEFF]/g) || []
-        const totalWs = wsMatches.length + unicodeWsMatches.length
+    // Whitespace detection - Relaxed to allow natural spacing
+    // We only block excessive whitespace or weird formatting if needed, but Math.js handles spaces fine.
+    // So we effectively remove the ZERO TOLERANCE check.
 
-        return {
-            valid: false,
-            error: `Whitespace not allowed. Found ${totalWs} space character(s)`,
-            suggestion: 'Remove all spaces (e.g., x^2+2*x not x^2 + 2*x)',
-            corrected: input.replace(/[\s\u00A0\u200B\u2000-\u200F\u2028-\u202F\u205F\u3000\uFEFF]/g, '')
-        }
-    }
-
-    // Character whitelist - lowercase only, no spaces
-    const safePattern = /^[a-z0-9+\-*/^().,=]+$/
+    // Character whitelist - lowercase only, allow spaces
+    const safePattern = /^[a-z0-9+\-*/^().,=\s]+$/
     if (!safePattern.test(input)) {
         return {
             valid: false,
@@ -107,8 +96,8 @@ export const sanitizeInput = (input) => {
     // Convert to lowercase (handles uppercase letters)
     sanitized = sanitized.toLowerCase()
 
-    // Remove ALL whitespace including Unicode variants
-    sanitized = sanitized.replace(/[\s\u00A0\u200B\u2000-\u200F\u2028-\u202F\u205F\u3000\uFEFF]/g, '')
+    // Trim whitespace but allow internal spaces
+    sanitized = sanitized.trim()
 
     // Remove script tags (security)
     sanitized = sanitized.replace(/<script>/gi, '')
